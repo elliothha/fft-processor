@@ -455,11 +455,15 @@ module processor(
             DX_T
         ) : ( // else, check if it is an overflow
             (DX_ALU_overflow) ? (
-                (DX_IR[31:27] == 5'b00000 || DX_IR[31:27] == 5'b00101) ? ( // if it was an ALU type insn (r-type or addi) -> (check types) : (set to 0)
-                    (DX_IR[31:27] == 5'b00101) ? 32'd2 : (                 // if it was an addi -> (excpt == 2) : (check add, sub, mul, div)
-                        (DX_IR[6:2] == 5'b00000) ? 32'd1 : (               // if it was an add  -> (excpt == 1) : (check sub, mul, div)
-                            (DX_IR[6:2] == 5'b00001) ? 32'd3 : (           // if it was a  sub  -> (excpt == 3) : (check mul, div)
-                                (DX_IR[6:2] == 5'b00110) ? 32'd4 : 32'd5   // if it was a  mul  -> (excpt == 4) : (excpt == 5)
+                (DX_IR[31:27] == 5'b00000 || DX_IR[31:27] == 5'b00101) ? (    // if it was an ALU type insn (r-type or addi) -> (check types) : (set to 0)
+                    (DX_IR[31:27] == 5'b00101) ? 32'd2 : (                    // if it was an addi -> (excpt == 2) : (check add, sub, mul, div)
+                        (DX_IR[6:2] == 5'b00000) ? 32'd1 : (                  // if it was an add  -> (excpt == 1) : (check sub, mul, div)
+                            (DX_IR[6:2] == 5'b00001) ? 32'd3 : (              // if it was a  sub  -> (excpt == 3) : (check mul, div)
+                                (DX_IR[6:2] == 5'b00110) ? 32'd4 : (          // if it was a  mul  -> (excpt == 4) : (check div)
+                                    (DX_IR[6:2] == 5'b00111) ? 32'd5 : (      // if it was a  duv  -> (excpt == 5) : (keep output from and/or/sll/sra)
+                                        DX_ALU_output
+                                    )
+                                )  
                             )
                         )
                     )
@@ -477,9 +481,14 @@ module processor(
             {DX_IR[31:27], 5'd30, DX_IR[21:0]}
         ) : ( // else, check if it IS an overflow -> (change $rd for the insn to be $r30) : (keep DX_IR the same)
             (DX_ALU_overflow) ? (
-                (DX_IR[31:27] == 5'b00000 || DX_IR[31:27] == 5'b00101) ? // if it was an ALU insn, write to $r30, else nothing ("write" to $r0)
+                (DX_IR[31:27] == 5'b00101 || (DX_IR[31:27] == 5'b00000 && (
+                    DX_IR[6:2] == 5'b00000 ||
+                    DX_IR[6:2] == 5'b00001 ||
+                    DX_IR[6:2] == 5'b00110 ||
+                    DX_IR[6:2] == 5'b00111
+                ))) ? // if it was an ALU insn, write to $r30, else nothing ("write" to $r0)
                 {DX_IR[31:27], 5'd30, DX_IR[21:0]} : // the excpt IR
-                {DX_IR[31:27], 5'd0, DX_IR[21:0]}    // else, $rd <- 0 IR
+                DX_IR
             ) : (
                 DX_IR // keep DX_IR if not a setx and not an overflow
             )
