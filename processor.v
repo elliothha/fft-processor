@@ -68,6 +68,7 @@ module processor(
     /*  --- FETCH STAGE ---------------------------------------------------  */
     //  I/O wires for PC reg
     //  [31:0] = word-addressed PC addr = IMEM insn addrs (program exec init @ 32'd0)
+    wire PC_writeEnable;
     wire [31:0] PC_data_in;  // [31:0] = incoming next PC addr
     wire [31:0] PC_data_out; // [31:0] = outgoing current PC addr, aka current insn addr
 
@@ -83,6 +84,7 @@ module processor(
     //  F/D reg read values
     //  [63:32] = F/D.PC; the "next" PC relative to current IR's PC
     //  [31:0]  = F/D.IR; the "current" PC's actual insn
+    wire FD_writeEnable;
     wire [63:0] FD_data_out;
     wire [31:0] FD_PC, FD_IR;
 
@@ -101,6 +103,9 @@ module processor(
     wire [31:0] FD_T, J_PC;
 
     // DECODE STAGE output wires
+    wire lw_WX_stall_rs1, lw_WX_stall_rs2;
+
+    wire [31:0] DX_IR_in;
     wire [127:0] DX_data_in;
 
     /*  --- EXECUTE STAGE -------------------------------------------------  */
@@ -112,12 +117,15 @@ module processor(
     wire [31:0] DX_PC, DX_RS1VAL, DX_RS2VAL, DX_IR;
 
     //  ALU Logic
+    wire ALU_MX_bypass_rs1, ALU_WX_bypass_rs1;
+    wire ALU_MX_bypass_rs2, ALU_WX_bypass_rs2;
+
     wire [31:0] DX_N;
     wire [31:0] DX_T;
 
     wire DX_ALU_overflow;
     wire [4:0] DX_ALU_opcode, DX_ALU_shamt;
-    wire [31:0] DX_ALU_operandB;
+    wire [31:0] DX_ALU_operandA, DX_ALU_operandB;
     wire [31:0] DX_ALU_output; // this is raw output of ALU
 
     //  EXECUTE STAGE output wires
@@ -134,6 +142,9 @@ module processor(
     wire [31:0] XM_ALUVAL, XM_RDVAL, XM_IR;
 
     //  DMEM Logic
+    wire DMEM_WM_bypass_wdata; 
+
+    wire [31:0] XM_sw_data;
     wire [31:0] XM_lw_data;
 
     // MEMORY STAGE output wires
@@ -147,6 +158,9 @@ module processor(
     wire [95:0] MW_data_out;
     wire [31:0] MW_ALUVAL, MW_RDVAL, MW_IR;
 
+    // WRITEBACK STAGE output wires
+    wire [31:0] MW_writeData;
+
 	/*  -------------------------------------------------------------------
      *  --- DLX PROCESSOR IMPLEMENTATION                                ---
      *  -------------------------------------------------------------------  */
@@ -157,7 +171,7 @@ module processor(
         .DATA_WIDTH(32)
     ) PC_reg (  
         .clk(clock),
-        .en(1'b1), // [TODO]: maybe change later for disable PC reg?
+        .en(PC_writeEnable), // [TODO]: maybe change later for disable PC reg?
         .clr(reset),
         .data_in(PC_data_in),
         .data_out(PC_data_out)
@@ -189,7 +203,7 @@ module processor(
         .DATA_WIDTH(64)
     ) FD_reg (  
         .clk(clock),
-        .en(1'b1),
+        .en(FD_writeEnable),
         .clr(reset),
         .data_in(FD_data_in),
         .data_out(FD_data_out)
@@ -267,7 +281,45 @@ module processor(
     assign FD_RS2VAL = data_readRegB;     //  THIS IS $rt val if R-type, $rd val if not
 
     //  --- DECODE STAGE Output Logic
-    assign DX_data_in = {FD_PC, FD_RS1VAL, FD_RS2VAL, FD_IR};
+    assign lw_WX_stall_rs1 = (
+        (
+            DX_IR[31:27] == 5'b01000 && (   // D/X == lw insn && F/D ==
+                FD_IR[31:27] == 5'b00000 || // R-type ALU insn or
+                FD_IR[31:27] == 5'b00101 || // addi ALU insn or
+                FD_IR[31:27] == 5'b00111 || // sw MEM insn or
+                FD_IR[31:27] == 5'b01000    // lw MEM insn
+            )
+        ) && (
+            DX_IR[26:22] == FD_IR[21:17] && // lw $rd == ALU insn/MEM insn $rs (RS1)
+            FD_IR[21:17] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
+    assign lw_WX_stall_rs2 = (
+        (
+            DX_IR[31:27] == 5'b01000 && (   // D/X == lw insn && F/D ==
+                FD_IR[31:27] == 5'b00000    // R-type ALU insn
+            )
+        ) && (
+            DX_IR[26:22] == FD_IR[16:12] && // D/X lw $rd == F/D ALU $rt only
+            FD_IR[16:12] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
+
+    assign DX_IR_in = (
+        lw_WX_stall_rs1 || 
+        lw_WX_stall_rs2
+    ) ? 32'd0 : FD_IR; // insert nop for lw stall
+    assign PC_writeEnable = (
+        lw_WX_stall_rs1 ||
+        lw_WX_stall_rs2
+    ) ? 1'b0 : 1'b1;   // disable write to PC reg on lw stall
+    assign FD_writeEnable = (
+        lw_WX_stall_rs1 ||
+        lw_WX_stall_rs2
+    ) ? 1'b0 : 1'b1;   // disable write to FD reg on lw stall
+
+
+    assign DX_data_in = {FD_PC, FD_RS1VAL, FD_RS2VAL, DX_IR_in};
 
     /*  --- EXECUTE STAGE -------------------------------------------------  */
     //  --- D/X Reg = {[95:64] D/X.RS1VAL, [63:32] D/X.RS2VAL, [31:0] D/X.IR}
@@ -291,10 +343,101 @@ module processor(
     assign DX_T = {5'b0, DX_IR[26:0]};
     assign DX_ALU_shamt = DX_IR[11:7]; // only used if the insn is a shift insn
     assign DX_ALU_opcode = (DX_IR[31:27] == 5'd0) ? DX_IR[6:2] : 5'd0; // if (R) -> DX.IR.ALUop; if (not R) -> always add
-    assign DX_ALU_operandB = (DX_IR[31:27] == 5'd0) ? DX_RS2VAL : DX_N; // if (R) -> use DX_RS2VAL == $rt; if (not R) -> use N
+    
+    // Bypassing to DX_ALU_operandA
+    assign ALU_MX_bypass_rs1 = (
+        (
+            ( // XM == ALU insn
+                XM_IR[31:27] == 5'b00000 || // r-type
+                XM_IR[31:27] == 5'b00101    // addi
+            ) && 
+            ( // DX == ALU insn or MEM insn
+                DX_IR[31:27] == 5'b00000 || // r-type
+                DX_IR[31:27] == 5'b00101 || // addi
+                DX_IR[31:27] == 5'b00111 || // sw
+                DX_IR[31:27] == 5'b01000    // lw
+            )
+        ) && ( // and ALU $rd == ALU/MEM $rs
+            XM_IR[26:22] == DX_IR[21:17] && // XM $rd == DX $rs
+            DX_IR[21:17] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
+    assign ALU_WX_bypass_rs1 = (
+        (
+            ( // MW == ALU insn or lw
+                MW_IR[31:27] == 5'b00000 || // r-type
+                MW_IR[31:27] == 5'b00101 || // addi
+                MW_IR[31:27] == 5'b01000    // lw
+            ) && 
+            ( // DX == ALU insn or MEM insn
+                DX_IR[31:27] == 5'b00000 || // r-type
+                DX_IR[31:27] == 5'b00101 || // addi
+                DX_IR[31:27] == 5'b00111 || // sw
+                DX_IR[31:27] == 5'b01000    // lw
+            )
+        ) && ( // and ALU or lw $rd == ALU/MEM $rs
+            MW_IR[26:22] == DX_IR[21:17] && // MW $rd == DX $rs
+            DX_IR[21:17] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
 
+    assign DX_ALU_operandA = (
+        ALU_MX_bypass_rs1
+    ) ? XM_ALUVAL : (
+        (
+            ALU_WX_bypass_rs1
+        ) ? MW_writeData : DX_RS1VAL
+    );
+
+    // Bypassing to DX_ALU_operandB
+    assign ALU_MX_bypass_rs2 = (
+        (
+            ( // XM == ALU insn
+                XM_IR[31:27] == 5'b00000 || // r-type
+                XM_IR[31:27] == 5'b00101    // addi
+            ) && 
+            ( // DX == ALU r-type insn only
+                DX_IR[31:27] == 5'b00000    // r-type
+            )
+        ) && ( // and ALU $rd == ALU $rt
+            XM_IR[26:22] == DX_IR[16:12] && // XM $rd == DX $rt
+            DX_IR[16:12] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
+    assign ALU_WX_bypass_rs2 = (
+        (
+            ( // MW == ALU insn or lw
+                MW_IR[31:27] == 5'b00000 || // r-type
+                MW_IR[31:27] == 5'b00101 || // addi
+                MW_IR[31:27] == 5'b01000    // lw
+            ) && 
+            ( // DX == ALU r-type insn only
+                DX_IR[31:27] == 5'b00000    // r-type
+            )
+        ) && ( // and ALU or lw $rd == ALU $rt
+            MW_IR[26:22] == DX_IR[16:12] && // MW $rd == DX $rt
+            DX_IR[16:12] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
+
+    assign DX_ALU_operandB = (
+        DX_IR[31:27] == 5'b00101 || // addi
+        DX_IR[31:27] == 5'b00010 || // bne
+        DX_IR[31:27] == 5'b00110 || // blt
+        DX_IR[31:27] == 5'b00111 || // sw
+        DX_IR[31:27] == 5'b01000    // lw
+    ) ? DX_N : ( // if I_type, use DX_N for alu_opB no bypassing needed ever
+        (        // else, need bypassing for R_type alu
+            ALU_MX_bypass_rs2
+        ) ? XM_ALUVAL : (
+            (
+                ALU_WX_bypass_rs2
+            ) ? MW_writeData : DX_RS2VAL
+        )
+    );
+    
     alu DX_ALU(
-        .data_operandA(DX_RS1VAL),        // always $rs val
+        .data_operandA(DX_ALU_operandA),        // always $rs val
         .data_operandB(DX_ALU_operandB),  // if (R) -> DX_RS2VAL == $rt; if (not R) -> I_type_constant = N
         .ctrl_ALUopcode(DX_ALU_opcode),   // if (R) -> ALUop; if (not R) -> add
         .ctrl_shiftamt(DX_ALU_shamt),     // only used in (R) shift insns
@@ -362,12 +505,29 @@ module processor(
     assign XM_IR = XM_data_out[31:0];
 
     //  --- DMEM (RAM) Logic
+    assign DMEM_WM_bypass_wdata = (
+        (
+            (
+                MW_IR[31:27] == 5'b00000 || // r-type alu
+                MW_IR[31:27] == 5'b00101 || // addi alu
+                MW_IR[31:27] == 5'b01000    // lw
+            ) && (
+                XM_IR[31:27] == 5'b00111 // XM is sw only
+            )
+        ) && (
+            MW_IR[26:22] == XM_IR[26:22] && // MW $rd == XM sw $rd
+            XM_IR[26:22] != 5'd0
+        )
+    ) ? 1'b1 : 1'b0;
+
+    assign XM_sw_data = DMEM_WM_bypass_wdata ? MW_writeData : XM_RDVAL;
+
     //  output [31:0] address_dmem, data;
 	//  output wren;
 	//  input [31:0] q_dmem;
     assign wren = (XM_IR[31:27] == 5'b00111) ? 1'b1 : 1'b0; // allow wren on sw (00111) insns only
     assign address_dmem = XM_ALUVAL; // $rs + N; for sw -> used to write to DMEM, for lw -> used to save DMEM val to regfile, all else -> not used
-    assign data = XM_RDVAL; // $rd write data for sw insns
+    assign data = XM_sw_data; // $rd write data for sw insns
 
     assign XM_lw_data = q_dmem; // lw data -> $rd = MEM[$rs + N], if not a lw insn, just never used so whatever's read from DMEM is irrelevant
 
@@ -410,12 +570,13 @@ module processor(
         ) ? 1'b1 : 1'b0
     ); 
 
-    assign data_writeReg = (
+    assign MW_writeData = (
         MW_IR[31:27] == 5'b00000 || // use ALU output if r-type insn or
         MW_IR[31:27] == 5'b00101 || // addi insn
         MW_IR[31:27] == 5'b10101 || // setx, this will be T
         MW_IR[31:27] == 5'b00011    // jal, this will be PC + 1
     ) ? MW_ALUVAL : MW_RDVAL;       // else, use lw data
+    assign data_writeReg = MW_writeData;
 
     // THIS IS $rd addr, 
     // if setx it'll be $r30
