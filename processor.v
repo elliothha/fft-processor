@@ -123,6 +123,7 @@ module processor(
 
     wire DX_ALU_overflow;
     wire [4:0] DX_ALU_opcode, DX_ALU_shamt;
+    wire [31:0] DX_data_operandB;
     wire [31:0] DX_ALU_operandA, DX_ALU_operandB;
     wire [31:0] DX_ALU_output; // this is raw output of ALU
 
@@ -243,7 +244,7 @@ module processor(
                 (
                     FD_IR[31:27] == 5'b10110
                 ) ? (
-                    XM_IR[26:22] == 5'd30           // bex's depend on $r30
+                    XM_IR[26:22] == 5'd30           // XM $rd == $r30 for the bex check
                 ) : (                               // check all else
                     XM_IR[26:22] == FD_IR[26:22] && // XM $rd == FD bne/blt/jr's $rd
                     FD_IR[26:22] != 5'd0            // FD $rd != 0
@@ -267,7 +268,7 @@ module processor(
                 (
                     FD_IR[31:27] == 5'b10110
                 ) ? (
-                    MW_IR[26:22] == 5'd30           // bex's depend on $r30
+                    MW_IR[26:22] == 5'd30           // MW $rd == $r30 for the bex check
                 ) : (                               // check all else
                     MW_IR[26:22] == FD_IR[26:22] && // MW $rd == FD bne/blt/jr's $rd
                     FD_IR[26:22] != 5'd0            // FD $rd != 0
@@ -445,8 +446,10 @@ module processor(
                 )
             ) && ( // check if there's an actual dependency
                 (
-                    FD_IR[31:27] == 5'b10110        // always stall once on bex's
-                ) ? (1'b1) : (                      // else, check for dependency
+                    FD_IR[31:27] == 5'b10110        // always stall once on bex's as long as not a nop
+                ) ? (
+                    DX_IR != 32'd0                  // stall if not nop
+                ) : (                               // else, check for dependency
                     DX_IR[26:22] == FD_IR[26:22] && // DX $rd == FD bne/blt/jr's $rd
                     FD_IR[26:22] != 5'd0            // FD $rd != 0
                 )
@@ -557,42 +560,44 @@ module processor(
     );
 
     // Bypassing to DX_ALU_operandB
+    assign DX_data_operandB = ( // first, check if there's a MX bypass possible, if so use 'XM_ALUVAL'
+        ( // MX BYPASS 'XM_ALUVAL' TO $rt IF: XM = ALU | DX = ALU (r-type only), sw
+            ( // dependency relations for ALU
+                (
+                    XM_IR[31:27] == 5'b00000 || // ALU only
+                    XM_IR[31:27] == 5'b00101    // addi
+                ) && (
+                    DX_IR[31:27] == 5'b00000 || // ALU
+                    DX_IR[31:27] == 5'b00111    // sw
+                )
+            ) && ( // check if there's an actual dependency 
+                XM_IR[26:22] == (DX_IR[31:27] == 5'b00000 ? DX_IR[16:12] : DX_IR[26:22]) && // $rd == $rt if ALI, $rd if sw
+                (DX_IR[31:27] == 5'b00000 ? DX_IR[16:12] : DX_IR[26:22]) != 5'd0            // $rt/$rs != 0
+            )
+        ) 
+    ) ? (XM_ALUVAL) : ( // then, check if there's a WX bypass possible, if so use 'MW_writeData'
+        ( // WX BYPASS 'MW_writeData' TO $rt IF: MW = ALU, lw | DX = ALU, sw
+            ( // dependency relations for ALU
+                (
+                    MW_IR[31:27] == 5'b00000 || // ALU
+                    MW_IR[31:27] == 5'b00101 || // addi
+                    MW_IR[31:27] == 5'b01000    // lw
+                ) && (
+                    DX_IR[31:27] == 5'b00000 || // ALU
+                    DX_IR[31:27] == 5'b00111    // sw
+                )
+            ) && ( // check if there's an actual dependency
+                MW_IR[26:22] == (DX_IR[31:27] == 5'b00000 ? DX_IR[16:12] : DX_IR[26:22]) && // $rd == $rt if ALI, $rd if sw
+                (DX_IR[31:27] == 5'b00000 ? DX_IR[16:12] : DX_IR[26:22]) != 5'd0            // $rt/$rs != 0
+            )
+        ) ? (MW_writeData) : (DX_RS2VAL) 
+    ); // otherwise, then it's not an I-type ALU insn nor does it have a bypass, aka r-type ALU insn that just uses $rt
+
     assign DX_ALU_operandB = ( // first, check if an I-type ALU insn, if so no need to bypass just use the constant
         DX_IR[31:27] == 5'b00101 || // addi
         DX_IR[31:27] == 5'b00111 || // sw
         DX_IR[31:27] == 5'b01000    // lw
-    ) ? (DX_N) : ( // otherwise (for r-type ALU insns), need to bypass, (MX Bypass > WX Bypass > No Bypass (DX_RS2VAL))
-        ( // first, check if there's a MX bypass possible, if so use 'XM_ALUVAL'
-            ( // MX BYPASS 'XM_ALUVAL' TO $rt IF: XM = ALU | DX = ALU (r-type only)
-                ( // dependency relations for ALU
-                    (
-                        XM_IR[31:27] == 5'b00000 || // ALU only
-                        XM_IR[31:27] == 5'b00101    // addi
-                    ) && (
-                        DX_IR[31:27] == 5'b00000    // ALU
-                    )
-                ) && ( // check if there's an actual dependency 
-                    XM_IR[26:22] == DX_IR[16:12] && // $rd == $rt
-                    DX_IR[16:12] != 5'd0            // $rt != 0
-                )
-            ) 
-        ) ? (XM_ALUVAL) : ( // then, check if there's a WX bypass possible, if so use 'MW_writeData'
-            ( // WX BYPASS 'MW_writeData' TO $rt IF: MW = ALU, lw | DX = ALU
-                ( // dependency relations for ALU
-                    (
-                        MW_IR[31:27] == 5'b00000 || // ALU
-                        MW_IR[31:27] == 5'b00101 || // addi
-                        MW_IR[31:27] == 5'b01000    // lw
-                    ) && (
-                        DX_IR[31:27] == 5'b00000    // ALU
-                    )
-                ) && ( // check if there's an actual dependency
-                    MW_IR[26:22] == DX_IR[16:12] && // $rd == $rt
-                    DX_IR[16:12] != 5'd0            // $rt != 0
-                )
-            ) ? (MW_writeData) : (DX_RS2VAL) 
-        ) // otherwise, then it's not an I-type ALU insn nor does it have a bypass, aka r-type ALU insn that just uses $rt
-    );
+    ) ? (DX_N) : (DX_data_operandB);
     
     alu DX_ALU(
         .data_operandA(DX_ALU_operandA),        // always $rs val
@@ -658,7 +663,7 @@ module processor(
         )
     ); 
 
-    assign XM_data_in = {XM_ALUVAL_in, DX_RS2VAL, XM_IR_in};
+    assign XM_data_in = {XM_ALUVAL_in, DX_data_operandB, XM_IR_in};
 
     /*  --- MULTDIV STAGE -------------------------------------------------  */
     /*
