@@ -12,3 +12,4 @@ Hardware/multdiv.v
 Hardware/multiplier.v
 Hardware/pipeline_reg.v
 Hardware/regfile.v
+Hardware/register.v

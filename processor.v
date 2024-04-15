@@ -104,7 +104,7 @@ module processor(
 
     // DECODE STAGE output wires
     wire [31:0] FD_COMP_operandA, FD_COMP_operandB;
-    wire insert_stall_rs1, insert_stall_rs2;
+    wire insert_stall_rs1, insert_stall_rs2, insert_stall_multicycle;
 
     wire [31:0] DX_IR_in;
     wire [127:0] DX_data_in;
@@ -134,8 +134,15 @@ module processor(
 
     /*  --- MULTDIV STAGE -------------------------------------------------  */
 
+    wire ctrl_MULT, ctrl_DIV;
     wire DX_MULTDIV_exception, DX_MULTDIV_dataRDY;
     wire [31:0] DX_MULTDIV_output;
+
+    wire is_finished;
+    wire PW_RDY;
+    wire [31:0] PW_IR_out, PW_RES_in, PW_IR_in;
+    wire [31:0] PW_RES, PW_IR;
+    wire [64:0] PW_data_in, PW_data_out; 
 
     /*  --- MEMORY STAGE --------------------------------------------------  */
     //  X/M reg read values
@@ -478,19 +485,26 @@ module processor(
         )
     ) ? 1'b1 : 1'b0;
 
+    assign insert_stall_multicycle = (
+        PW_IR_out != 32'd0
+    );
+
     assign DX_IR_in = (
         insert_stall_rs1 || 
-        insert_stall_rs2
+        insert_stall_rs2 ||
+        insert_stall_multicycle
     ) ? 32'd0 : FD_IR; // insert nop for stall
 
     assign PC_writeEnable = (
         insert_stall_rs1 ||
-        insert_stall_rs2
+        insert_stall_rs2 ||
+        insert_stall_multicycle
     ) ? 1'b0 : 1'b1;   // disable write to PC reg on stall
 
     assign FD_writeEnable = (
         insert_stall_rs1 ||
-        insert_stall_rs2
+        insert_stall_rs2 ||
+        insert_stall_multicycle
     ) ? 1'b0 : 1'b1;   // disable write to FD reg on stall
 
 
@@ -512,6 +526,9 @@ module processor(
     assign DX_RS1VAL = DX_data_out[95:64]; // always the $rs val
     assign DX_RS2VAL = DX_data_out[63:32]; // if (R) -> $rt val; if (not R) -> $rd val
     assign DX_IR = DX_data_out[31:0];
+
+    assign ctrl_MULT = DX_IR[31:27] == 5'b0 && DX_IR[6:2] == 5'b00110;
+    assign ctrl_DIV = DX_IR[31:27] == 5'b0 && DX_IR[6:2] == 5'b00111;
 
     //  --- ALU Logic
     assign DX_N = {{15{DX_IR[16]}}, DX_IR[16:0]}; // 32-b sign-extended I-type N
@@ -640,44 +657,91 @@ module processor(
         )
     );
 
-    assign XM_IR_in = ( // if it's a jal (00011), change $rd <- $31, also change opcode to 5'd0 to look like an "ALU" operation for bypassing
-        DX_IR[31:27] == 5'b00011
-    ) ? ({5'd0, 5'd31, DX_IR[21:0]}) : (
-        ( // if it's a setx (10101), change $rd <- $30, and change opcode to 5'd0 to look like an ALU op for bypassing
-            DX_IR[31:27] == 5'b10101
-        ) ? ({5'd0, 5'd30, DX_IR[21:0]}) : (
-            ( // else, check if it IS an overflow -> (change $rd for the insn to be $r30) : (keep DX_IR the same)
-                DX_ALU_overflow
-            ) ? (
-                ( // if it was an ALU insn, write to $r30, else keep DX_IR
-                    DX_IR[31:27] == 5'b00101 || // is an addi
-                    (
-                        DX_IR[31:27] == 5'b00000 && // is an r-type and
+    assign XM_IR_in = ( // if ctrl_MULT or ctrl_DIV, turn into XM_IR into a nop
+        ctrl_MULT ||
+        ctrl_DIV
+    ) ? (32'd0) : (
+        ( // if it's a jal (00011), change $rd <- $31, also change opcode to 5'd0 to look like an "ALU" operation for bypassing
+            DX_IR[31:27] == 5'b00011
+        ) ? ({5'd0, 5'd31, DX_IR[21:0]}) : (
+            ( // if it's a setx (10101), change $rd <- $30, and change opcode to 5'd0 to look like an ALU op for bypassing
+                DX_IR[31:27] == 5'b10101
+            ) ? ({5'd0, 5'd30, DX_IR[21:0]}) : (
+                ( // else, check if it IS an overflow -> (change $rd for the insn to be $r30) : (keep DX_IR the same)
+                    DX_ALU_overflow
+                ) ? (
+                    ( // if it was an ALU insn, write to $r30, else keep DX_IR
+                        DX_IR[31:27] == 5'b00101 || // is an addi
                         (
-                            DX_IR[6:2] == 5'b00000 || // is an add
-                            DX_IR[6:2] == 5'b00001    // is a sub
+                            DX_IR[31:27] == 5'b00000 && // is an r-type and
+                            (
+                                DX_IR[6:2] == 5'b00000 || // is an add
+                                DX_IR[6:2] == 5'b00001    // is a sub
+                            )
                         )
-                    )
-                ) ? ({DX_IR[31:27], 5'd30, DX_IR[21:0]}) : (DX_IR)
-            ) : (DX_IR) // keep DX_IR if not a setx and not an overflow
+                    ) ? ({DX_IR[31:27], 5'd30, DX_IR[21:0]}) : (DX_IR)
+                ) : (DX_IR) // keep DX_IR if not a setx and not an overflow
+            )
         )
-    ); 
+    );
 
     assign XM_data_in = {XM_ALUVAL_in, DX_data_operandB, XM_IR_in};
 
     /*  --- MULTDIV STAGE -------------------------------------------------  */
-    /*
+
+    register #(
+        .DATA_WIDTH(32)
+    ) PW_IR_reg (  
+        .clk(clock),
+        .en((ctrl_MULT || ctrl_DIV)),
+        .clr(reset || is_finished),
+        .data_in(DX_IR),
+        .data_out(PW_IR_out)
+    );
+
     multdiv DX_MULTDIV(
         .data_operandA(DX_ALU_operandA), 
         .data_operandB(DX_ALU_operandB), 
-        .ctrl_MULT((DX_IR[31:27] == 5'b0 && DX_IR[6:2] == 5'b00110)), 
-        .ctrl_DIV((DX_IR[31:27] == 5'b0 && DX_IR[6:2] == 5'b00111)), 
+        .ctrl_MULT(ctrl_MULT), 
+        .ctrl_DIV(ctrl_DIV), 
         .clock(clock), 
         .data_result(DX_MULTDIV_output), 
         .data_exception(DX_MULTDIV_exception), 
         .data_resultRDY(DX_MULTDIV_dataRDY)
     );
-    */
+
+    assign PW_RES_in = (
+        DX_MULTDIV_exception
+    ) ? (
+        PW_IR_out[6:2] == 5'b00110 ? 32'd4 : 32'd5
+    ) : (DX_MULTDIV_output);
+
+    assign PW_IR_in = (
+        DX_MULTDIV_exception
+    ) ? ({5'd0, 5'd30, PW_IR_out[21:0]}) : (PW_IR_out);
+
+    assign PW_data_in = {DX_MULTDIV_dataRDY, PW_RES_in, PW_IR_in};
+
+    //  --- P/W Reg = {[63:32] P/W.RES, [31:0] P/W.IR}
+    pipeline_reg #(
+        .DATA_WIDTH(65)
+    ) PW_reg (  
+        .clk(clock),
+        .en(DX_MULTDIV_dataRDY),
+        .clr(reset || is_finished),
+        .data_in(PW_data_in),
+        .data_out(PW_data_out)
+    );
+
+    assign PW_RDY = PW_data_out[64];
+    assign PW_RES = PW_data_out[63:32];
+    assign PW_IR = PW_data_out[31:0];
+
+    assign is_finished = (
+        MW_IR == PW_IR &&
+        MW_IR != 32'd0
+    );
+    
     /*  --- MEMORY STAGE --------------------------------------------------  */
     //  --- X/M Reg = {[127:96] X/M.PC, [95:64] X/M.ALUVAL, [63:32] X/M.RDVAL, [31:0] X/M.IR}
     pipeline_reg #(
@@ -690,9 +754,9 @@ module processor(
         .data_out(XM_data_out)
     );
 
-    assign XM_ALUVAL = XM_data_out[95:64]; // if (R) -> $rs + rt; if (not R) -> $rs + N
+    assign XM_ALUVAL = (PW_RDY) ? (PW_RES) : (XM_data_out[95:64]); // if (R) -> $rs + rt; if (not R) -> $rs + N
     assign XM_RDVAL = XM_data_out[63:32];  // only used when (I) sw -> $rd val; enforced w/ wren
-    assign XM_IR = XM_data_out[31:0];
+    assign XM_IR = (PW_RDY) ? (PW_IR) : (XM_data_out[31:0]);
 
     //  --- DMEM (RAM) Logic
     // Bypassing to DMEM write data for sw's
@@ -755,9 +819,13 @@ module processor(
     ) ? (1'b1) : (1'b0);
 
     assign MW_writeData = (
-        MW_IR[31:27] == 5'b00000 || // use ALU output if r-type insn/jal/setx
-        MW_IR[31:27] == 5'b00101    // addi insn
-    ) ? MW_ALUVAL : MW_RDVAL;       // else, use lw data
+        (
+
+        ) ? () : (
+            MW_IR[31:27] == 5'b00000 || // use ALU output if r-type insn/jal/setx
+            MW_IR[31:27] == 5'b00101    // addi insn
+        ) ? (MW_ALUVAL) : (MW_RDVAL)
+    ); // else, use lw data
 
     assign data_writeReg = MW_writeData;
 
