@@ -7,9 +7,12 @@ processor.v
 Hardware/alu.v
 Hardware/dffe_neg.v
 Hardware/dffe_pos.v
-Hardware/divider.v
-Hardware/multdiv.v
-Hardware/multiplier.v
 Hardware/pipeline_reg.v
 Hardware/regfile.v
 Hardware/register.v
+Hardware/tffe.v
+Hardware/counter16_4.v
+Hardware/counter32_5.v
+Hardware/divider.v
+Hardware/multiplier.v
+Hardware/multdiv.v

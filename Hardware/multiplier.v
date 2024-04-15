@@ -1,93 +1,133 @@
-module multiplier(mc, mp, start, reset, clk, prod, overflow, done);
-	input [31:0] mc, mp;
-	input start, reset, clk;
-	
-	output [31:0] prod;
-	output overflow, done;
 
-	reg [64:0] A, S, P;
-	reg [5:0] count;
-	wire P1, P0;
-	assign P1 = P[1];
-	assign P0 = P[0];
-	
-	wire [63:0] mc_extend, mp_extend;
-	assign mc_extend = {mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31],
-	                    mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31],
-	                    mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31],
-	                    mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc[31], mc};
-	
-	assign mp_extend = {mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31],
-	                    mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31],
-	                    mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31],
-	                    mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp[31], mp};
-	
-	reg [63:0] real_prod;
-	
-	reg busy, done;
-	
-	initial begin
-		busy = 0;
-		done = 0;
-		count = 0;
-	end
-	
-	always @(posedge clk) begin
-		if (reset && busy) begin
-			busy = 0;
-			count <= 0;
-		end
-		
-		if (start) begin
-			busy = 1;
-			
-			A[64:33] <= mc;
-			A[32:0] <= 33'b0;
-			
-			S[64:33] <= -mc;
-			S[32:0] <= 33'b0;
-			
-			P[64:33] <= 32'b0;
-			P[32:1] <= mp;
-			P[0] = 1'b0;
-			
-			real_prod <= mc_extend*mp_extend;
-			
-			count <= 6'b0;
-		end else if (busy) begin
-			case ({P1, P0})
-				2'b0_1 : P <= (P + A) >>> 1;
-				2'b1_0 : P <= (P + S) >>> 1;
-				default: P <= P >>> 1;
-			endcase
-			count <= count + 1'b1;
-		end
-		
-		if (done) begin
-			done = 0;
-		end
-		
-		if (count == 31) begin
-			busy = 0;
-			done = 1;
-		end
-		
-	
-		
-	end
-	
-	wire n_overflow, o_overflow;
-	
-	nand (n_overflow, real_prod[31], real_prod[32], real_prod[33], real_prod[34], real_prod[35], real_prod[36], real_prod[37], real_prod[38], real_prod[39],
-                     real_prod[40], real_prod[41], real_prod[42], real_prod[43], real_prod[44], real_prod[45], real_prod[46], real_prod[47],
-							real_prod[48], real_prod[49], real_prod[50], real_prod[51], real_prod[52], real_prod[53], real_prod[54], real_prod[55],
-							real_prod[56], real_prod[57], real_prod[58], real_prod[59], real_prod[60], real_prod[61], real_prod[62], real_prod[63]);
-	
-	or (o_overflow, real_prod[31], real_prod[32], real_prod[33], real_prod[34], real_prod[35], real_prod[36], real_prod[37], real_prod[38], real_prod[39],
-                   real_prod[40], real_prod[41], real_prod[42], real_prod[43], real_prod[44], real_prod[45], real_prod[46], real_prod[47],
-						 real_prod[48], real_prod[49], real_prod[50], real_prod[51], real_prod[52], real_prod[53], real_prod[54], real_prod[55],
-						 real_prod[56], real_prod[57], real_prod[58], real_prod[59], real_prod[60], real_prod[61], real_prod[62], real_prod[63]);
-	
-	assign prod = P[32:1];
-	and (overflow, n_overflow, o_overflow);
+module multiplier (
+    // CONTROL SIGNALS
+    clk,                   // I: 1-bit clk signal
+    ctrl_MULT,               // I: 1-bit signal asserted for 1 cycle (negedge -> posedge) to start mult op
+    stop_MULT,               // I: 1-bit signal asserted to clr everything
+
+    // MULTIPLIER I/O
+    data_operandA,           // I: 32-bit multiplicand
+    data_operandB,           // I: 32-bit multiplier
+
+    mult_result,             // O: 32-bit output
+    mult_exception,          // O: 1-bit signal if multiplication overflow error
+    mult_ready               // O: 1-bit signal if multiplication has fully finished
+);
+
+    // CONTROL SIGNALS
+    input clk, ctrl_MULT, stop_MULT; 
+
+    // MULTIPLIER I/O
+    input [31:0] data_operandA, data_operandB;
+
+    output [31:0] mult_result;
+    output mult_exception, mult_ready;  
+
+    /* ---- MODIFIED BOOTH'S ALGO IMPLEMENTATION ----------------------------------------------- */
+
+    // WIRES
+    wire ongoing_MULT, is_DONE, helper;
+    wire [2:0] ctrl;
+    wire [3:0] counter;
+    wire [4:0] ALUopcode;
+    wire [31:0] ALUInputA, ALUInputB, ALUOutput;
+    wire [31:0] upper, lower;
+    wire [31:0] multiplicand, multiplier;
+    wire [64:0] product_in, product_out, concatenated, rsa_concat, rsa_same;
+
+
+    // LOGIC
+    register #(
+        .DATA_WIDTH(1)
+    ) is_ongoing (
+        .clk(clk),
+        .clr(stop_MULT),
+        .en(ctrl_MULT || counter == 4'b1111),
+        .data_in(ctrl_MULT),
+        .data_out(ongoing_MULT)
+    );
+
+    register #(
+        .DATA_WIDTH(1)
+    ) is_finished (
+        .clk(clk),
+        .clr(stop_MULT),
+        .en(1'b1),
+        .data_in(counter == 4'b1111),
+        .data_out(is_DONE)
+    );
+
+    register #(
+        .DATA_WIDTH(32)
+    ) store_operandA (
+        .clk(clk),
+        .clr(stop_MULT),
+        .en(ctrl_MULT),
+        .data_in(data_operandA),
+        .data_out(multiplicand)
+    );
+
+    register #(
+        .DATA_WIDTH(32)
+    ) store_operandB (
+        .clk(clk),
+        .clr(stop_MULT),
+        .en(ctrl_MULT),
+        .data_in(data_operandB),
+        .data_out(multiplier)
+    );
+
+    assign ALUInputB = (ctrl == 3'b011 || ctrl == 3'b100) ? (multiplicand << 1) : multiplicand; // shifts = 011, 100
+    assign ALUInputA = product_out[64:33]; // upper 32 bits
+    assign ALUopcode = (ctrl == 3'b001 || ctrl == 3'b010 || ctrl == 3'b011) ? 5'b00000 : 5'b00001; // adds = 001, 010, 011
+
+    alu mult_alu(
+        .data_operandA(ALUInputA), 
+        .data_operandB(ALUInputB), 
+        .ctrl_ALUopcode(ALUopcode),
+        .data_result(ALUOutput)
+        // Unused ports: ctrl_shftamt, isNotEqual, isLessThan, overflow
+    );
+
+    // nop = 000, 111
+    assign concatenated = {ALUOutput, product_out[32:1], product_out[0]};
+    assign rsa_concat = $signed(concatenated) >>> 2;
+    assign rsa_same = $signed(product_out) >>> 2;
+    assign product_in = ctrl_MULT ? {32'b0, data_operandB, 1'b0} : (
+        (ctrl == 3'b000 || ctrl == 3'b111) ? rsa_same : rsa_concat
+    );
+
+    register #(
+        .DATA_WIDTH(65) // 32-bit upper product, 32-bit lower product, 1-bit helper
+    ) product_reg (
+        .clk(clk),
+        .clr(stop_MULT),
+        .en(1'b1),
+        .data_in(product_in),
+        .data_out(product_out)
+    );
+
+    assign upper = product_out[64:33];
+    assign lower = product_out[32:1];
+    assign helper = product_out[0];
+    assign ctrl = product_out[2:0];
+
+    counter16_4 iter_counter (
+        .clk(clk),
+        .clr(stop_MULT || ctrl_MULT),
+        .en(ongoing_MULT),
+        .counter(counter)
+    );
+
+    assign mult_result = product_out[32:1];
+    assign mult_ready = is_DONE;
+    assign mult_exception = (
+        (product_out[32] == 1'b0 && product_out[64:33] != 32'b0) || 
+        (product_out[32] == 1'b1 && product_out[64:33] != 32'b11111111111111111111111111111111) ||
+        (multiplicand[31] == 1'b1 && multiplier[31] == 1'b1 && mult_result[31] == 1'b1) // handles case where we need to negate max val multiplicand
+    ) && mult_ready;
+
+
+
+
 endmodule
