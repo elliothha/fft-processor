@@ -1,14 +1,14 @@
 Cycle   9: Wrote 12 into register 1
 Cycle  11: Wrote 13 into register 2
 Cycle  44: Wrote 156 into register 3
-Cycle  47: Wrote 144 into register 4
-Cycle  48: Wrote 4 into register 5
-Cycle  81: Wrote 3 into register 6
-Cycle  84: Wrote 8 into register 7
-Cycle  85: Wrote 3 into register 8
-Cycle 118: Wrote 24 into register 9
-Cycle 153: Wrote 2 into register 10
-Cycle 188: Wrote 12 into register 11
+Cycle  46: Wrote 144 into register 4
+Cycle  47: Wrote 4 into register 5
+Cycle  80: Wrote 3 into register 6
+Cycle  82: Wrote 8 into register 7
+Cycle  83: Wrote 3 into register 8
+Cycle 116: Wrote 24 into register 9
+Cycle 150: Wrote 2 into register 10
+Cycle 184: Wrote 12 into register 11
 ============== Testing Mode ==============
 Reg  0:           0
 Reg  1:          12

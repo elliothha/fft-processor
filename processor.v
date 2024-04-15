@@ -694,7 +694,7 @@ module processor(
     ) PW_IR_reg (  
         .clk(clock),
         .en((ctrl_MULT || ctrl_DIV)),
-        .clr(reset || is_finished),
+        .clr(reset || PW_RDY),
         .data_in(DX_IR),
         .data_out(PW_IR_out)
     );
@@ -819,13 +819,9 @@ module processor(
     ) ? (1'b1) : (1'b0);
 
     assign MW_writeData = (
-        (
-
-        ) ? () : (
-            MW_IR[31:27] == 5'b00000 || // use ALU output if r-type insn/jal/setx
-            MW_IR[31:27] == 5'b00101    // addi insn
-        ) ? (MW_ALUVAL) : (MW_RDVAL)
-    ); // else, use lw data
+        MW_IR[31:27] == 5'b00000 || // use ALU output if r-type insn/jal/setx
+        MW_IR[31:27] == 5'b00101    // addi insn
+    ) ? (MW_ALUVAL) : (MW_RDVAL); // else, use lw data
 
     assign data_writeReg = MW_writeData;
 
