@@ -3,7 +3,8 @@ module regfile (
 	clock,
 	ctrl_writeEnable, ctrl_reset, ctrl_writeReg,
 	ctrl_readRegA, ctrl_readRegB, data_writeReg,
-	data_readRegA, data_readRegB
+	data_readRegA, data_readRegB,
+	led_output
 );
 
 	input clock, ctrl_writeEnable, ctrl_reset;
@@ -11,6 +12,7 @@ module regfile (
 	input [31:0] data_writeReg;
 
 	output [31:0] data_readRegA, data_readRegB;
+	output [15:0] led_output;
 
 	/* ---- REGFILE HARDWARE IMPLEMENTATION ---------------------------------------------------- */
 
@@ -36,5 +38,7 @@ module regfile (
 
 	assign data_readRegA = registers[ctrl_readRegA];
 	assign data_readRegB = registers[ctrl_readRegB];
+
+	assign led_output = (ctrl_writeReg == 5'd31) ? data_writeReg[15:0] : 16'd0;
 
 endmodule

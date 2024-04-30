@@ -24,14 +24,17 @@
  *
  **/
 
-module Wrapper (clock, reset);
+module Wrapper (clock, reset, LED);
 	input clock, reset;
+
+	output [15:0] LED;
 
 	wire rwe, mwe;
 	wire[4:0] rd, rs1, rs2;
 	wire[31:0] instAddr, instData, 
 		rData, regA, regB,
 		memAddr, memDataIn, memDataOut;
+	wire[15:0] led_output;
 
 
 	// ADD YOUR MEMORY FILE HERE
@@ -63,7 +66,9 @@ module Wrapper (clock, reset);
 		.ctrl_writeEnable(rwe), .ctrl_reset(reset), 
 		.ctrl_writeReg(rd),
 		.ctrl_readRegA(rs1), .ctrl_readRegB(rs2), 
-		.data_writeReg(rData), .data_readRegA(regA), .data_readRegB(regB));
+		.data_writeReg(rData), .data_readRegA(regA), .data_readRegB(regB),
+		.led_output(led_output)
+	);
 						
 	// Processor Memory (RAM)
 	RAM ProcMem(.clk(clock), 
@@ -71,5 +76,7 @@ module Wrapper (clock, reset);
 		.addr(memAddr[11:0]), 
 		.dataIn(memDataIn), 
 		.dataOut(memDataOut));
+	
+	assign LED = led_output;
 
 endmodule

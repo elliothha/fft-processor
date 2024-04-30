@@ -1,0 +1,555 @@
+$date
+	Fri Apr 19 04:18:07 2024
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1ps
+$end
+$scope module mealy_tb $end
+$var wire 3 ! Y [2:0] $end
+$var wire 3 " data_out [2:0] $end
+$var wire 1 # out $end
+$var reg 1 $ clk $end
+$var reg 1 % w $end
+$scope module UUT $end
+$var wire 1 $ clk $end
+$var wire 1 % w $end
+$var wire 1 & y2 $end
+$var wire 1 ' y1 $end
+$var wire 1 ( y0 $end
+$var wire 1 # out $end
+$var wire 3 ) data_out [2:0] $end
+$var wire 3 * Y [2:0] $end
+$scope module y0_state $end
+$var wire 1 $ clk $end
+$var wire 1 + clr $end
+$var wire 1 , data_in $end
+$var wire 1 - en $end
+$var reg 1 ( data_out $end
+$upscope $end
+$scope module y1_state $end
+$var wire 1 $ clk $end
+$var wire 1 . clr $end
+$var wire 1 / data_in $end
+$var wire 1 0 en $end
+$var reg 1 ' data_out $end
+$upscope $end
+$scope module y2_state $end
+$var wire 1 $ clk $end
+$var wire 1 1 clr $end
+$var wire 1 2 data_in $end
+$var wire 1 3 en $end
+$var reg 1 & data_out $end
+$upscope $end
+$upscope $end
+$upscope $end
+$scope module moore_tb $end
+$var wire 3 4 Y [2:0] $end
+$var wire 3 5 data_out [2:0] $end
+$var wire 1 6 out $end
+$var reg 1 7 clk $end
+$var reg 1 8 w $end
+$scope module UUT $end
+$var wire 1 7 clk $end
+$var wire 1 8 w $end
+$var wire 1 9 y2 $end
+$var wire 1 : y1 $end
+$var wire 1 ; y0 $end
+$var wire 1 6 out $end
+$var wire 3 < data_out [2:0] $end
+$var wire 3 = Y [2:0] $end
+$scope module y0_state $end
+$var wire 1 7 clk $end
+$var wire 1 > clr $end
+$var wire 1 ? data_in $end
+$var wire 1 @ en $end
+$var reg 1 ; data_out $end
+$upscope $end
+$scope module y1_state $end
+$var wire 1 7 clk $end
+$var wire 1 A clr $end
+$var wire 1 B data_in $end
+$var wire 1 C en $end
+$var reg 1 : data_out $end
+$upscope $end
+$scope module y2_state $end
+$var wire 1 7 clk $end
+$var wire 1 D clr $end
+$var wire 1 E data_in $end
+$var wire 1 F en $end
+$var reg 1 9 data_out $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+1F
+0E
+0D
+1C
+0B
+0A
+1@
+0?
+0>
+b0 =
+b0 <
+0;
+0:
+09
+08
+07
+06
+b0 5
+b0 4
+13
+02
+01
+10
+0/
+0.
+1-
+0,
+0+
+b0 *
+b0 )
+0(
+0'
+0&
+0%
+0$
+0#
+b0 "
+b0 !
+$end
+#10000
+17
+1$
+#20000
+07
+0$
+#25000
+1?
+1,
+b1 4
+b1 =
+b1 !
+b1 *
+18
+1%
+#30000
+1B
+0?
+1/
+0,
+b10 4
+b10 =
+b10 !
+b10 *
+b1 5
+b1 <
+1;
+b1 "
+b1 )
+1(
+17
+1$
+#35000
+1?
+0B
+1,
+0/
+b1 4
+b1 =
+b1 !
+b1 *
+08
+0%
+#40000
+07
+0$
+#45000
+0?
+1B
+0,
+1/
+b10 4
+b10 =
+b10 !
+b10 *
+18
+1%
+#50000
+1?
+0E
+1B
+1,
+02
+1/
+b11 4
+b11 =
+b11 !
+b11 *
+0;
+b10 5
+b10 <
+1:
+0(
+b10 "
+b10 )
+1'
+17
+1$
+#55000
+0?
+0,
+b10 4
+b10 =
+b10 !
+b10 *
+08
+0%
+#60000
+07
+0$
+#65000
+1?
+1,
+b11 4
+b11 =
+b11 !
+b11 *
+18
+1%
+#70000
+1E
+0B
+12
+0/
+0?
+0,
+b100 4
+b100 =
+b100 !
+b100 *
+b11 5
+b11 <
+1;
+b11 "
+b11 )
+1(
+17
+1$
+#75000
+1B
+0E
+1/
+02
+1?
+1,
+b11 4
+b11 =
+b11 !
+b11 *
+08
+0%
+#80000
+07
+0$
+#85000
+0B
+1E
+0/
+12
+0?
+0,
+b100 4
+b100 =
+b100 !
+b100 *
+18
+1%
+#90000
+1?
+1E
+1,
+12
+b101 4
+b101 =
+1#
+b101 !
+b101 *
+16
+1>
+1A
+1D
+1+
+1.
+11
+0;
+0:
+b100 5
+b100 <
+19
+0(
+0'
+b100 "
+b100 )
+1&
+17
+1$
+#95000
+0?
+0,
+0#
+b100 4
+b100 =
+b100 !
+b100 *
+0>
+0A
+0D
+0+
+0.
+01
+08
+0%
+#100000
+07
+0$
+#105000
+1?
+1,
+b101 4
+b101 =
+b101 !
+b101 *
+1>
+1A
+1D
+1+
+1.
+11
+18
+1%
+#110000
+0E
+02
+b1 4
+b1 =
+b1 !
+b1 *
+06
+0>
+0A
+0D
+0+
+0.
+01
+b0 5
+b0 <
+09
+b0 "
+b0 )
+0&
+0#
+17
+1$
+#115000
+0?
+0,
+b0 4
+b0 =
+b0 !
+b0 *
+08
+0%
+#120000
+07
+0$
+#125000
+1?
+1,
+b1 4
+b1 =
+b1 !
+b1 *
+18
+1%
+#130000
+1B
+0?
+1/
+0,
+b10 4
+b10 =
+b10 !
+b10 *
+b1 5
+b1 <
+1;
+b1 "
+b1 )
+1(
+17
+1$
+#135000
+1?
+0B
+1,
+0/
+b1 4
+b1 =
+b1 !
+b1 *
+08
+0%
+#140000
+07
+0$
+#145000
+0?
+1B
+0,
+1/
+b10 4
+b10 =
+b10 !
+b10 *
+18
+1%
+#150000
+1?
+1,
+b11 4
+b11 =
+b11 !
+b11 *
+1:
+b10 5
+b10 <
+0;
+1'
+b10 "
+b10 )
+0(
+17
+1$
+#155000
+0?
+0,
+b10 4
+b10 =
+b10 !
+b10 *
+08
+0%
+#160000
+07
+0$
+#165000
+1?
+1,
+b11 4
+b11 =
+b11 !
+b11 *
+18
+1%
+#170000
+1E
+0B
+12
+0/
+0?
+0,
+b100 4
+b100 =
+b100 !
+b100 *
+b11 5
+b11 <
+1;
+b11 "
+b11 )
+1(
+17
+1$
+#175000
+1B
+0E
+1/
+02
+1?
+1,
+b11 4
+b11 =
+b11 !
+b11 *
+08
+0%
+#180000
+07
+0$
+#185000
+0B
+1E
+0/
+12
+0?
+0,
+b100 4
+b100 =
+b100 !
+b100 *
+18
+1%
+#190000
+1?
+1,
+b101 4
+b101 =
+1#
+b101 !
+b101 *
+16
+1>
+1A
+1D
+1+
+1.
+11
+19
+0:
+b100 5
+b100 <
+0;
+1&
+0'
+b100 "
+b100 )
+0(
+17
+1$
+#195000
+0?
+0,
+0#
+b100 4
+b100 =
+b100 !
+b100 *
+0>
+0A
+0D
+0+
+0.
+01
+08
+0%
+#200000
+07
+0$
