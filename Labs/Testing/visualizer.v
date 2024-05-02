@@ -116,6 +116,8 @@ module visualizer(
 
 	assign colorAddr = {1'b0, col_counter} + col_head;
 
+	// ---- ASSIGN OUTPUTS --------------------------------------------------------------
+
 	assign JA = {
 		(((4'd15 - row_counter) > magnData) ? (1'b0) : ((tick_counter > colorData[23:16]) ? 1'b0 : 1'b1)),	// JA[5] = R1
 		(((4'd15 - row_counter) > magnData) ? (1'b0) : ((tick_counter > colorData[15:8]) ? 1'b0 : 1'b1)),	// JA[4] = G1
@@ -134,8 +136,6 @@ module visualizer(
 		latch_oe,			// JB[1] = LAT
 		latch_oe			// JB[0] = OE
 	};
-
-	// assign JA = showVImg ? vPixelDataOut : hPixelDataOut;
 
 	// ---- END CODE --------------------------------------------------------------------
 
