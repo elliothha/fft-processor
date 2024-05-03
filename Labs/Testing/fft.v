@@ -5,8 +5,6 @@ module fft(
     input		vauxn3,         //
 	input       vp_in,          //
 	input		vn_in,          //
-    input[4:0]  SW,
-    output[15:0] LED,           //
     output[5:0] JA,             //
     output[6:0] JB              //
 );
@@ -14,8 +12,10 @@ module fft(
     localparam FILES_PATH = "C:/Users/Elliot/Desktop/Processor/Labs/Testing/";
 
 	localparam 
+        Hz = 1,
 		MHz = 1000000,
-		SYSTEM_FREQ = 100*MHz;
+		SYSTEM_FREQ = 100*MHz,
+        COLOR_FREQ = 32*Hz;
 
 	localparam
 		COLOR_COUNT = 64,						// 64 circular color gradient
@@ -46,15 +46,15 @@ module fft(
 		.clk_out2(clk_25mhz)	// O : 25 MHz pll clk for driving LED display
 	);
 
-	reg clk_8hz = 0;
-	reg [25:0] clk_8hz_counter = 0;   // 26-bit counter to hold values up to 50,000,000
+	reg clk_COLOR_FREQ = 0;
+	reg [31:0] clk_COLOR_FREQ_counter = 0;
 
 	always @(posedge clk_100mhz) begin
-		if (clk_8hz_counter == (SYSTEM_FREQ / (2 * 1)) - 1) begin
-			clk_8hz <= ~clk_8hz;
-			clk_8hz_counter <= 0;
+		if (clk_COLOR_FREQ_counter == (SYSTEM_FREQ / (2 * COLOR_FREQ)) - 1) begin
+			clk_COLOR_FREQ <= ~clk_COLOR_FREQ;
+			clk_COLOR_FREQ_counter <= 0;
 		end else begin
-			clk_8hz_counter <= clk_8hz_counter + 1;
+			clk_COLOR_FREQ_counter <= clk_COLOR_FREQ_counter + 1;
 		end
 	end
 
@@ -71,7 +71,7 @@ module fft(
 
     wire MAG_wEn;
     wire [4:0] MAG_addr;
-    wire [32:0] MAG_dataIn, MAG_dataOut; 
+    wire [31:0] MAG_dataIn, MAG_dataOut; 
 
     // XADC
     wire xadc_rdy;
@@ -149,7 +149,7 @@ module fft(
     RAM #(
         .DEPTH(32),
         .ADDRESS_WIDTH(5),
-        .DATA_WIDTH(33)
+        .DATA_WIDTH(32)
     ) MAG_MEM (
         .clk(clk_50mhz),
         .wEn(MAG_wEn),
@@ -240,6 +240,7 @@ module fft(
 
     // XFFT I/O regs and wires
 
+    reg [14:0] S_CTR = 15'd0;
     reg [10:0] S_DATA_TNUM = 11'd2047;      // logic ctrl   = changes on posedge (reset happens on negedge!)
 
     reg [9:0] S_FIFO_readPtr = 10'd0;       // S_FIFO param = changes on negedge  
@@ -251,39 +252,34 @@ module fft(
     reg [31:0] S_DATA_TDATA = 32'd0;        // XFFT param   = changes on negedge
 
     reg M_DATA_TVALID = 1'b0;
-    //reg M_DATA_TLAST = 1'b0;
+    reg M_DATA_TLAST = 1'b0;
     reg [31:0] M_DATA_TDATA = 32'd0;
-    reg [9:0] M_DATA_TUSER = 10'd0;
-
-    reg write_MAG = 1'b0;
-    reg [4:0] address_MAG = 5'd0;
-    reg [31:0] IM_MAG = 32'd0;
-    reg [31:0] RE_MAG = 32'd0;
+    reg [9:0] M_DATA_TDATA_IDX = 10'd0;
 
     // s_axis_data logic
     // since XFFT and mem are posedge triggered, need params to change on negedge so they're stable
 
     always @(posedge clk_50mhz) begin
-        if (S_DATA_TNUM == 11'd1023) begin
+        if (S_DATA_TLAST == 1'b1) begin
             S_DATA_TNUM <= 11'd2047;
+            S_CTR <= S_CTR + 1;
         end else begin
-           S_DATA_TNUM <= S_DATA_TNUM + 1; 
+            S_DATA_TNUM <= S_DATA_TNUM + 1; 
+            if (S_CTR == 15'd3048) begin
+                S_CTR <= 15'd0;
+            end
         end
         // on clk_50mhz posedges, we also either read/write to S_FIFO
         // on clk_50mhz posedges, we also make a transaction to XFFT
     end
     
     always @(negedge clk_50mhz) begin
-        
         // S_DATA LOGIC
         S_DATA_TDATA <= {16'd0, S_FIFO_dataOut};
         if (S_DATA_TNUM == 11'd1023) begin
             S_DATA_TLAST <= 1'b1;
             S_FIFO_readPtr <= S_FIFO_writePtr;
-            
             SAMPLED_DATA_48KHZ <= xadc_data;
-
-            // S_DATA_TNUM <= 11'd2046;    // assign to (11'dmax - 1) to "reset" transaction counter
         end else begin
             S_DATA_TLAST <= 1'b0;
             S_FIFO_readPtr <= S_FIFO_readPtr + 1;
@@ -291,30 +287,17 @@ module fft(
                 S_DATA_TVALID <= 1'b0;
                 S_FIFO_writePtr <= S_FIFO_writePtr + 1;
             end else begin
-                S_DATA_TVALID <= 1'b1;
+                if (S_DATA_TNUM == 11'd0 && S_CTR == 15'd0) begin
+                    S_DATA_TVALID <= 1'b1;
+                end
             end 
         end
 
         // M_DATA LOGIC
         M_DATA_TVALID <= m_axis_data_tvalid;
-        //M_DATA_TLAST <= m_axis_data_tlast;
-        M_DATA_TDATA <= m_axis_data_tdata;
-        M_DATA_TUSER <= m_axis_data_tuser[9:0];
-
-        if (
-            (m_axis_data_tvalid) && 
-            (m_axis_data_tuser[9:0] < 10'd512) && 
-            (m_axis_data_tuser[3:0] == 4'b0000)
-        ) begin
-            write_MAG <= 1'b1;
-            address_MAG <= m_axis_data_tuser[8:4];
-            IM_MAG <= $signed(m_axis_data_tdata[31:16]) * $signed(m_axis_data_tdata[31:16]);
-            RE_MAG <= $signed(m_axis_data_tdata[15:0]) * $signed(m_axis_data_tdata[15:0]);
-        end else begin
-            write_MAG <= 1'b0;
-            address_MAG <= col_counter;
-        end
-
+        M_DATA_TLAST <= m_axis_data_tlast;
+        M_DATA_TDATA <= m_axis_data_tdata;  // 31-bit
+        M_DATA_TDATA_IDX <= m_axis_data_tuser[9:0];  // lower 10-bits
     end
 
     assign S_FIFO_wEn = S_DATA_TLAST;
@@ -334,40 +317,17 @@ module fft(
 
     // M_DATA
     assign M_FIFO_wEn = M_DATA_TVALID;
-    assign M_FIFO_addr = M_DATA_TUSER[9:0];
+    assign M_FIFO_addr = M_DATA_TDATA_IDX;
     assign M_FIFO_dataIn = M_DATA_TDATA;
 
     // ---- MAPPING ---------------------------------------------------------------------
 
-    /*
-    assign MAG_wEn = (
-        (M_DATA_TVALID) && 
-        (M_DATA_TUSER[9:0] < 10'd512) && 
-        (M_DATA_TUSER[3:0] == 4'b0000)
-    ) ? 1'b1 : 1'b0;
-
-    assign MAG_addr = (MAG_wEn) ? (
-        M_DATA_TUSER[8:4]
-    ) : col_counter;
-    
-    assign MAG_dataIn = (
-        (M_DATA_TVALID) && 
-        (M_DATA_TUSER[9:0] < 10'd512) && 
-        (M_DATA_TUSER[3:0] == 4'b0000)
-    ) ? (
-        (
-            $signed(M_DATA_TDATA[31:16]) * $signed(M_DATA_TDATA[31:16]) + 
-            $signed(M_DATA_TDATA[15:0]) * $signed(M_DATA_TDATA[15:0])
-        )
-    ) : 33'd0;
-    */
-
-    assign MAG_wEn = write_MAG;
-    assign MAG_addr = address_MAG;
-    assign MAG_dataIn = IM_MAG + RE_MAG;
+    assign MAG_wEn = ((M_DATA_TVALID) && (M_DATA_TDATA_IDX >= 10'd512) && (M_DATA_TDATA_IDX[3:0] == 4'b0000));
+    assign MAG_addr = (M_DATA_TVALID) ? (5'd31 - M_DATA_TDATA_IDX[8:4]) : (col_counter);
+    assign MAG_dataIn = M_DATA_TDATA;
 
     // ---- LED MATRIX TESTING ----------------------------------------------------------
-
+    
 	always @(posedge clk_25mhz) begin
 		col_counter <= col_counter + 1;
 
@@ -385,26 +345,33 @@ module fft(
 
 	end
 
-    reg [15:0] testLED = 16'd0;
-
-	always @(posedge clk_8hz) begin
+	always @(posedge clk_COLOR_FREQ) begin
 		col_head <= col_head + 1;
-        if (M_DATA_TUSER[8:4] == SW) begin
-           testLED <= M_DATA_TDATA[15:0]; 
-        end
 	end
 
 	assign colorAddr = {1'b0, col_counter} + col_head;
 
 	// ---- ASSIGN OUTPUTS --------------------------------------------------------------
 
+    wire [31:0] REAL_VAL, IMAG_VAL;
+    // assign REAL_VAL = (MAG_dataOut[15] == 1'b1) ? (~MAG_dataOut[15:0] + 1) : (MAG_dataOut[15:0]);
+    // assign IMAG_VAL = (MAG_dataOut[31] == 1'b1) ? (~MAG_dataOut[31:16] + 1) : (MAG_dataOut[31:16]);
+    assign REAL_VAL = $signed(MAG_dataOut[15:0]) * $signed(MAG_dataOut[15:0]);
+    assign IMAG_VAL = $signed(MAG_dataOut[31:16]) * $signed(MAG_dataOut[31:16]);
+    
+    wire [31:0] mag;
+    assign mag = REAL_VAL + IMAG_VAL;
+    wire [15:0] magTop, magBot;
+    assign magTop = mag[31:16];
+    assign magBot = mag[15:0];
+    
 	assign JA = {
-		(((4'd15 - row_counter) > MAG_dataOut[32:29]) ? (1'b0) : ((tick_counter > colorData[23:16]) ? 1'b0 : 1'b1)),	// JA[5] = R1
-		(((4'd15 - row_counter) > MAG_dataOut[32:29]) ? (1'b0) : ((tick_counter > colorData[15:8]) ? 1'b0 : 1'b1)),	// JA[4] = G1
-		(((4'd15 - row_counter) > MAG_dataOut[32:29]) ? (1'b0) : ((tick_counter > colorData[7:0]) ? 1'b0 : 1'b1)),	    // JA[3] = B1
-		((row_counter > MAG_dataOut[32:29]) ? (1'b0) : ((tick_counter > colorData[23:16]) ? 1'b0 : 1'b1)),			    // JA[2] = R2
-		((row_counter > MAG_dataOut[32:29]) ? (1'b0) : ((tick_counter > colorData[15:8]) ? 1'b0 : 1'b1)),				// JA[1] = G2
-		((row_counter > MAG_dataOut[32:29]) ? (1'b0) : ((tick_counter > colorData[7:0]) ? 1'b0 : 1'b1))				// JA[0] = B2
+		((magTop[(4'd15 - row_counter)] == 1'b0) ? (1'b0) : ((tick_counter > colorData[23:16]) ? 1'b0 : 1'b1)),	// JA[5] = R1
+		((magTop[(4'd15 - row_counter)] == 1'b0) ? (1'b0) : ((tick_counter > colorData[15:8]) ? 1'b0 : 1'b1)),	// JA[4] = G1
+		((magTop[(4'd15 - row_counter)] == 1'b0) ? (1'b0) : ((tick_counter > colorData[7:0]) ? 1'b0 : 1'b1)),	    // JA[3] = B1
+		((magBot[(4'd15 - row_counter)] == 1'b0) ? (1'b0) : ((tick_counter > colorData[23:16]) ? 1'b0 : 1'b1)),			    // JA[2] = R2
+		((magBot[(4'd15 - row_counter)] == 1'b0) ? (1'b0) : ((tick_counter > colorData[15:8]) ? 1'b0 : 1'b1)),				// JA[1] = G2
+		((magBot[(4'd15 - row_counter)] == 1'b0) ? (1'b0) : ((tick_counter > colorData[7:0]) ? 1'b0 : 1'b1))				// JA[0] = B2
 	};
 
 	assign JB = {
@@ -416,8 +383,6 @@ module fft(
 		latch_oe,			// JB[1] = LAT
 		latch_oe			// JB[0] = OE
 	};
-
-    assign LED = testLED;
 
     // ---- END CODE --------------------------------------------------------------------
 
